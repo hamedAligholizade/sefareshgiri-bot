@@ -1,22 +1,29 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const sequelize = require('../db/config');
 
-const userSchema = new mongoose.Schema({
+const User = sequelize.define('User', {
   telegramId: {
-    type: Number,
-    required: true,
+    type: DataTypes.BIGINT,
+    allowNull: false,
     unique: true
   },
-  firstName: String,
-  lastName: String,
-  username: String,
+  firstName: {
+    type: DataTypes.STRING
+  },
+  lastName: {
+    type: DataTypes.STRING
+  },
+  username: {
+    type: DataTypes.STRING
+  },
   isAdmin: {
-    type: Boolean,
-    default: false
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
   },
   createdAt: {
-    type: Date,
-    default: Date.now
+    type: DataTypes.DATE,
+    defaultValue: DataTypes.NOW
   }
 });
 
-module.exports = mongoose.model('User', userSchema); 
+module.exports = User; 
