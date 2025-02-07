@@ -149,13 +149,16 @@ bot.onText(/🛍 View Products/, async (msg) => {
     }
 
     for (const product of products) {
-      const message = `
-*${product.name}*
-Description: ${product.description}
-Price: $${product.price}
-Available Units: ${product.availableUnits}
+      // Escape special characters for Markdown
+      const escapedName = product.name.replace(/[*_`]/g, '\\$&');
+      const escapedDescription = product.description.replace(/[*_`]/g, '\\$&');
+      
+      const message = `*${escapedName}*
+💬 Description: ${escapedDescription}
+💰 Price: $${product.price.toFixed(2)}
+📦 Available Units: ${product.availableUnits}
 
-To order, use command: /order_${product.id}`;
+To order, use command: /order\\_${product.id}`;
 
       const imagePath = path.join(UPLOAD_DIR, product.imagePath);
       await bot.sendPhoto(msg.chat.id, fs.createReadStream(imagePath), {
