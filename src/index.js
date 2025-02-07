@@ -4,6 +4,17 @@ const sequelize = require('./db/config');
 const User = require('./models/User');
 const Product = require('./models/Product');
 const { Order, OrderItem } = require('./models/Order');
+const fs = require('fs');
+const path = require('path');
+const axios = require('axios');
+const { v4: uuidv4 } = require('uuid');
+
+const UPLOAD_DIR = path.join(__dirname, '..', 'uploads', 'images');
+
+// Ensure upload directory exists
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
 
 // Test database connection
 sequelize.authenticate()
@@ -15,6 +26,39 @@ const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
 // Store user states
 const userStates = new Map();
+
+// Helper function to download and save image
+async function downloadImage(fileId) {
+  try {
+    // Get file path from Telegram
+    const file = await bot.getFile(fileId);
+    const filePath = file.file_path;
+
+    // Generate unique filename
+    const fileExt = path.extname(filePath);
+    const fileName = `${uuidv4()}${fileExt}`;
+    const localPath = path.join(UPLOAD_DIR, fileName);
+
+    // Download file
+    const response = await axios({
+      method: 'GET',
+      url: `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${filePath}`,
+      responseType: 'stream'
+    });
+
+    // Save file
+    const writer = fs.createWriteStream(localPath);
+    response.data.pipe(writer);
+
+    return new Promise((resolve, reject) => {
+      writer.on('finish', () => resolve(fileName));
+      writer.on('error', reject);
+    });
+  } catch (error) {
+    console.error('Error downloading image:', error);
+    throw error;
+  }
+}
 
 // Command handlers
 bot.onText(/\/start/, async (msg) => {
@@ -101,7 +145,8 @@ Available Units: ${product.availableUnits}
 
 To order, use command: /order_${product.id}`;
 
-      await bot.sendPhoto(msg.chat.id, product.imageUrl, {
+      const imagePath = path.join(UPLOAD_DIR, product.imagePath);
+      await bot.sendPhoto(msg.chat.id, fs.createReadStream(imagePath), {
         caption: message,
         parse_mode: 'Markdown'
       });
@@ -142,16 +187,25 @@ bot.on('message', async (msg) => {
     }
     userState.productUnits = units;
     userState.state = 'ADDING_PRODUCT_IMAGE';
-    bot.sendMessage(msg.chat.id, 'Please send the product image URL:');
+    bot.sendMessage(msg.chat.id, 'Please send the product image:');
   } else if (userState.state === 'ADDING_PRODUCT_IMAGE') {
     try {
+      if (!msg.photo) {
+        return bot.sendMessage(msg.chat.id, 'Please send an image file:');
+      }
+
+      // Get the highest resolution photo
+      const photo = msg.photo[msg.photo.length - 1];
+      const imagePath = await downloadImage(photo.file_id);
+
       await Product.create({
         name: userState.productName,
         description: userState.productDescription,
         price: userState.productPrice,
         availableUnits: userState.productUnits,
-        imageUrl: msg.text
+        imagePath: imagePath
       });
+
       bot.sendMessage(msg.chat.id, 'Product added successfully!');
       userStates.delete(userId);
     } catch (error) {
