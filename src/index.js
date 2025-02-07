@@ -1,6 +1,7 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const sequelize = require('./db/config');
+const { Op } = require('sequelize');
 const User = require('./models/User');
 const Product = require('./models/Product');
 const { Order, OrderItem } = require('./models/Order');
@@ -14,6 +15,25 @@ const UPLOAD_DIR = path.join(__dirname, '..', 'uploads', 'images');
 // Ensure upload directory exists
 if (!fs.existsSync(UPLOAD_DIR)) {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
+
+// Helper function to show main menu
+async function showMainMenu(chatId, isAdmin) {
+  const keyboard = {
+    reply_markup: {
+      keyboard: [
+        ['🛍 View Products'],
+        ['🛒 My Orders']
+      ],
+      resize_keyboard: true
+    }
+  };
+
+  if (isAdmin) {
+    keyboard.reply_markup.keyboard.push(['👑 Admin Panel']);
+  }
+
+  await bot.sendMessage(chatId, 'Main Menu:', keyboard);
 }
 
 // Test database connection
@@ -74,21 +94,7 @@ bot.onText(/\/start/, async (msg) => {
       }
     });
 
-    const keyboard = {
-      reply_markup: {
-        keyboard: [
-          ['🛍 View Products'],
-          ['🛒 My Orders']
-        ],
-        resize_keyboard: true
-      }
-    };
-
-    if (msg.from.id.toString() === process.env.ADMIN_USER_ID) {
-      keyboard.reply_markup.keyboard.push(['👑 Admin Panel']);
-    }
-
-    bot.sendMessage(chatId, 'Welcome to the Order Bot! Please choose an option:', keyboard);
+    await showMainMenu(chatId, user.isAdmin);
   } catch (error) {
     console.error('Error in /start command:', error);
     bot.sendMessage(chatId, 'Sorry, there was an error processing your request.');
@@ -121,13 +127,19 @@ bot.onText(/➕ Add Product/, async (msg) => {
   bot.sendMessage(msg.chat.id, 'Please send the product name:');
 });
 
+// Back to Main Menu Handler
+bot.onText(/🔙 Back to Main Menu/, async (msg) => {
+  const user = await User.findOne({ where: { telegramId: msg.from.id } });
+  await showMainMenu(msg.chat.id, user.isAdmin);
+});
+
 // View Products Handler
 bot.onText(/🛍 View Products/, async (msg) => {
   try {
     const products = await Product.findAll({
       where: {
         availableUnits: {
-          [sequelize.Op.gt]: 0
+          [Op.gt]: 0
         }
       }
     });

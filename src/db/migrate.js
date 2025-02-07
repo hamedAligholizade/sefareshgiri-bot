@@ -6,7 +6,7 @@ const { Order, OrderItem } = require('../models/Order');
 
 async function migrate() {
   try {
-    // Sync all models with database
+    // Drop all tables and recreate them
     await sequelize.sync({ force: true });
     console.log('Database synchronized successfully');
 
