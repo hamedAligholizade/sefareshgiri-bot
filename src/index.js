@@ -153,9 +153,15 @@ bot.onText(/🛍 View Products/, async (msg) => {
       const escapedName = product.name.replace(/[*_`]/g, '\\$&');
       const escapedDescription = product.description.replace(/[*_`]/g, '\\$&');
       
+      // Format price with 2 decimal places
+      const formattedPrice = Number(product.price).toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+      
       const message = `*${escapedName}*
 💬 Description: ${escapedDescription}
-💰 Price: $${product.price.toFixed(2)}
+💰 Price: $${formattedPrice}
 📦 Available Units: ${product.availableUnits}
 
 To order, use command: /order\\_${product.id}`;
