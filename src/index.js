@@ -18,8 +18,8 @@ const userStates = new Map();
 
 // Command handlers
 bot.onText(/\/start/, async (msg) => {
+  const chatId = msg.chat.id;
   try {
-    const chatId = msg.chat.id;
     const [user] = await User.findOrCreate({
       where: { telegramId: msg.from.id },
       defaults: {
