@@ -13,7 +13,8 @@ services:
       - .:/usr/src/app
       - /usr/src/app/node_modules
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     command: npm run dev
 
   postgres:
