@@ -1,16 +1,18 @@
 #!/bin/sh
+set -e
 
-# Wait for PostgreSQL to be ready
 echo "Waiting for PostgreSQL to be ready..."
-while ! nc -z postgres 5437; do
-  sleep 0.1
+until nc -z postgres 5437; do
+  echo "PostgreSQL is unavailable - sleeping"
+  sleep 1
 done
-echo "PostgreSQL is ready!"
+echo "PostgreSQL is up - executing command"
 
-# Run migrations
 echo "Running database migrations..."
 node src/db/migrate.js
 
-# Start both services
 echo "Starting bot and server..."
-node src/server.js & node src/index.js 
+node src/server.js & node src/index.js
+
+# Keep the container running
+wait 
