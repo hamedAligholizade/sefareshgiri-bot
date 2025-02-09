@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
+const { requestPayment, verifyPayment } = require('./services/zarinpal');
 
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads', 'images');
 
@@ -22,18 +23,23 @@ async function showMainMenu(chatId, isAdmin) {
   const keyboard = {
     reply_markup: {
       keyboard: [
-        ['🛍 View Products'],
-        ['🛒 My Orders']
+        ['🛍 مشاهده محصولات'],
+        ['🛒 سفارشات من']
       ],
       resize_keyboard: true
     }
   };
 
   if (isAdmin) {
-    keyboard.reply_markup.keyboard.push(['👑 Admin Panel']);
+    keyboard.reply_markup.keyboard.push(['👑 پنل مدیریت']);
   }
 
-  await bot.sendMessage(chatId, 'Main Menu:', keyboard);
+  await bot.sendMessage(chatId, 'منوی اصلی:', keyboard);
+}
+
+// Helper function to format price in Toman
+function formatPrice(price) {
+  return Number(price).toLocaleString('fa-IR');
 }
 
 // Test database connection
@@ -102,39 +108,39 @@ bot.onText(/\/start/, async (msg) => {
 });
 
 // Admin commands
-bot.onText(/👑 Admin Panel/, async (msg) => {
+bot.onText(/👑 پنل مدیریت/, async (msg) => {
   if (msg.from.id.toString() !== process.env.ADMIN_USER_ID) return;
 
   const keyboard = {
     reply_markup: {
       keyboard: [
-        ['➕ Add Product', '📝 Edit Product'],
-        ['❌ Delete Product', '📊 View Orders'],
-        ['🔙 Back to Main Menu']
+        ['➕ افزودن محصول', '📝 ویرایش محصول'],
+        ['❌ حذف محصول', '📊 مشاهده سفارشات'],
+        ['🔙 بازگشت به منوی اصلی']
       ],
       resize_keyboard: true
     }
   };
 
-  bot.sendMessage(msg.chat.id, 'Welcome to Admin Panel! Choose an option:', keyboard);
+  bot.sendMessage(msg.chat.id, 'به پنل مدیریت خوش آمدید! لطفا یک گزینه را انتخاب کنید:', keyboard);
 });
 
 // Add Product Handler
-bot.onText(/➕ Add Product/, async (msg) => {
+bot.onText(/➕ افزودن محصول/, async (msg) => {
   if (msg.from.id.toString() !== process.env.ADMIN_USER_ID) return;
 
   userStates.set(msg.from.id, { state: 'ADDING_PRODUCT_NAME' });
-  bot.sendMessage(msg.chat.id, 'Please send the product name:');
+  bot.sendMessage(msg.chat.id, 'لطفا نام محصول را وارد کنید:');
 });
 
 // Back to Main Menu Handler
-bot.onText(/🔙 Back to Main Menu/, async (msg) => {
+bot.onText(/🔙 بازگشت به منوی اصلی/, async (msg) => {
   const user = await User.findOne({ where: { telegramId: msg.from.id } });
   await showMainMenu(msg.chat.id, user.isAdmin);
 });
 
 // View Products Handler
-bot.onText(/🛍 View Products/, async (msg) => {
+bot.onText(/🛍 مشاهده محصولات/, async (msg) => {
   try {
     const products = await Product.findAll({
       where: {
@@ -145,7 +151,7 @@ bot.onText(/🛍 View Products/, async (msg) => {
     });
     
     if (products.length === 0) {
-      return bot.sendMessage(msg.chat.id, 'No products available at the moment.');
+      return bot.sendMessage(msg.chat.id, 'در حال حاضر محصولی موجود نیست.');
     }
 
     for (const product of products) {
@@ -153,18 +159,13 @@ bot.onText(/🛍 View Products/, async (msg) => {
       const escapedName = product.name.replace(/[*_`]/g, '\\$&');
       const escapedDescription = product.description.replace(/[*_`]/g, '\\$&');
       
-      // Format price with 2 decimal places
-      const formattedPrice = Number(product.price).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-      });
-      
       const message = `*${escapedName}*
-💬 Description: ${escapedDescription}
-💰 Price: $${formattedPrice}
-📦 Available Units: ${product.availableUnits}
+💬 توضیحات: ${escapedDescription}
+💰 قیمت: ${formatPrice(product.price)} تومان
+📦 موجودی: ${product.availableUnits} عدد
 
-To order, use command: /order\\_${product.id}`;
+برای سفارش از دستور زیر استفاده کنید:
+/order\\_${product.id}`;
 
       const imagePath = path.join(UPLOAD_DIR, product.imagePath);
       await bot.sendPhoto(msg.chat.id, fs.createReadStream(imagePath), {
@@ -174,7 +175,150 @@ To order, use command: /order\\_${product.id}`;
     }
   } catch (error) {
     console.error('Error in View Products:', error);
-    bot.sendMessage(msg.chat.id, 'Sorry, there was an error fetching the products.');
+    bot.sendMessage(msg.chat.id, 'متأسفانه در دریافت لیست محصولات مشکلی پیش آمده است.');
+  }
+});
+
+// Helper function to show product list for admin
+async function showProductListForAdmin(chatId, action) {
+  const products = await Product.findAll();
+  
+  if (products.length === 0) {
+    return bot.sendMessage(chatId, 'هیچ محصولی موجود نیست.');
+  }
+
+  const keyboard = {
+    reply_markup: {
+      inline_keyboard: products.map(product => ([{
+        text: product.name,
+        callback_data: `${action}_${product.id}`
+      }]))
+    }
+  };
+
+  const actionTitles = {
+    'edit': 'ویرایش',
+    'delete': 'حذف'
+  };
+
+  await bot.sendMessage(
+    chatId,
+    `لطفا محصول مورد نظر برای ${actionTitles[action]} را انتخاب کنید:`,
+    keyboard
+  );
+}
+
+// Edit Product Handler
+bot.onText(/📝 ویرایش محصول/, async (msg) => {
+  if (msg.from.id.toString() !== process.env.ADMIN_USER_ID) return;
+  await showProductListForAdmin(msg.chat.id, 'edit');
+});
+
+// Delete Product Handler
+bot.onText(/❌ حذف محصول/, async (msg) => {
+  if (msg.from.id.toString() !== process.env.ADMIN_USER_ID) return;
+  await showProductListForAdmin(msg.chat.id, 'delete');
+});
+
+// View Orders Handler for Admin
+bot.onText(/📊 مشاهده سفارشات/, async (msg) => {
+  if (msg.from.id.toString() !== process.env.ADMIN_USER_ID) return;
+
+  try {
+    const orders = await Order.findAll({
+      include: [{
+        model: Product,
+        through: { attributes: ['quantity'] }
+      }, {
+        model: User,
+        attributes: ['firstName', 'lastName', 'username']
+      }],
+      order: [['createdAt', 'DESC']]
+    });
+
+    if (orders.length === 0) {
+      return bot.sendMessage(msg.chat.id, 'هیچ سفارشی ثبت نشده است.');
+    }
+
+    for (const order of orders) {
+      const customerName = order.User.firstName || order.User.username || 'کاربر ناشناس';
+      let message = `📋 سفارش #${order.id}\n`;
+      message += `👤 مشتری: ${customerName}\n`;
+      message += `📅 تاریخ: ${new Date(order.createdAt).toLocaleDateString('fa-IR')}\n`;
+      message += `🏷 وضعیت: ${translateStatus(order.status)}\n`;
+      message += `💰 مبلغ کل: ${formatPrice(order.totalAmount)} تومان\n\n`;
+      message += `📦 اقلام سفارش:\n`;
+      
+      for (const product of order.Products) {
+        message += `- ${product.name} (${product.OrderItem.quantity} عدد)\n`;
+      }
+
+      await bot.sendMessage(msg.chat.id, message);
+    }
+  } catch (error) {
+    console.error('Error fetching admin orders:', error);
+    bot.sendMessage(msg.chat.id, 'متأسفانه در دریافت لیست سفارشات مشکلی پیش آمده است.');
+  }
+});
+
+// Helper function to translate order status
+function translateStatus(status) {
+  const statusTranslations = {
+    'pending': 'در انتظار تایید',
+    'confirmed': 'تایید شده',
+    'cancelled': 'لغو شده'
+  };
+  return statusTranslations[status] || status;
+}
+
+// Handle callback queries for edit and delete actions
+bot.on('callback_query', async (query) => {
+  const [action, productId] = query.data.split('_');
+  const chatId = query.message.chat.id;
+
+  if (action === 'edit') {
+    const product = await Product.findByPk(productId);
+    if (!product) {
+      return bot.sendMessage(chatId, 'محصول مورد نظر یافت نشد.');
+    }
+
+    userStates.set(query.from.id, {
+      state: 'EDITING_PRODUCT_NAME',
+      productId: productId,
+      currentProduct: product
+    });
+
+    const message = `مشخصات فعلی محصول:\n\nنام: ${product.name}\nتوضیحات: ${product.description}\nقیمت: ${formatPrice(product.price)} تومان\nموجودی: ${product.availableUnits} عدد\n\nلطفا نام جدید محصول را وارد کنید (یا برای لغو از دستور /cancel استفاده کنید):`;
+    await bot.sendMessage(chatId, message);
+  } else if (action === 'delete') {
+    const product = await Product.findByPk(productId);
+    if (!product) {
+      return bot.sendMessage(chatId, 'محصول مورد نظر یافت نشد.');
+    }
+
+    try {
+      const imagePath = path.join(UPLOAD_DIR, product.imagePath);
+      if (fs.existsSync(imagePath)) {
+        fs.unlinkSync(imagePath);
+      }
+
+      await product.destroy();
+      await bot.sendMessage(chatId, 'محصول با موفقیت حذف شد.');
+    } catch (error) {
+      console.error('Error deleting product:', error);
+      await bot.sendMessage(chatId, 'متأسفانه در حذف محصول مشکلی پیش آمده است.');
+    }
+  }
+
+  await bot.answerCallbackQuery(query.id);
+});
+
+// Cancel command handler
+bot.onText(/\/cancel/, async (msg) => {
+  const userId = msg.from.id;
+  if (userStates.has(userId)) {
+    userStates.delete(userId);
+    await bot.sendMessage(msg.chat.id, 'عملیات لغو شد.');
   }
 });
 
@@ -188,34 +332,33 @@ bot.on('message', async (msg) => {
   if (userState.state === 'ADDING_PRODUCT_NAME') {
     userState.productName = msg.text;
     userState.state = 'ADDING_PRODUCT_DESCRIPTION';
-    bot.sendMessage(msg.chat.id, 'Please send the product description:');
+    bot.sendMessage(msg.chat.id, 'لطفا توضیحات محصول را وارد کنید:');
   } else if (userState.state === 'ADDING_PRODUCT_DESCRIPTION') {
     userState.productDescription = msg.text;
     userState.state = 'ADDING_PRODUCT_PRICE';
-    bot.sendMessage(msg.chat.id, 'Please send the product price (number only):');
+    bot.sendMessage(msg.chat.id, 'لطفا قیمت محصول را به تومان وارد کنید (فقط عدد):');
   } else if (userState.state === 'ADDING_PRODUCT_PRICE') {
     const price = parseFloat(msg.text);
     if (isNaN(price)) {
-      return bot.sendMessage(msg.chat.id, 'Please send a valid number for the price:');
+      return bot.sendMessage(msg.chat.id, 'لطفا یک عدد معتبر وارد کنید:');
     }
     userState.productPrice = price;
     userState.state = 'ADDING_PRODUCT_UNITS';
-    bot.sendMessage(msg.chat.id, 'Please send the available units (number only):');
+    bot.sendMessage(msg.chat.id, 'لطفا تعداد موجودی را وارد کنید (فقط عدد):');
   } else if (userState.state === 'ADDING_PRODUCT_UNITS') {
     const units = parseInt(msg.text);
     if (isNaN(units)) {
-      return bot.sendMessage(msg.chat.id, 'Please send a valid number for available units:');
+      return bot.sendMessage(msg.chat.id, 'لطفا یک عدد معتبر وارد کنید:');
     }
     userState.productUnits = units;
     userState.state = 'ADDING_PRODUCT_IMAGE';
-    bot.sendMessage(msg.chat.id, 'Please send the product image:');
+    bot.sendMessage(msg.chat.id, 'لطفا تصویر محصول را ارسال کنید:');
   } else if (userState.state === 'ADDING_PRODUCT_IMAGE') {
     try {
       if (!msg.photo) {
-        return bot.sendMessage(msg.chat.id, 'Please send an image file:');
+        return bot.sendMessage(msg.chat.id, 'لطفا یک تصویر ارسال کنید:');
       }
 
-      // Get the highest resolution photo
       const photo = msg.photo[msg.photo.length - 1];
       const imagePath = await downloadImage(photo.file_id);
 
@@ -227,28 +370,30 @@ bot.on('message', async (msg) => {
         imagePath: imagePath
       });
 
-      bot.sendMessage(msg.chat.id, 'Product added successfully!');
+      bot.sendMessage(msg.chat.id, 'محصول با موفقیت اضافه شد.');
       userStates.delete(userId);
     } catch (error) {
       console.error('Error saving product:', error);
-      bot.sendMessage(msg.chat.id, 'Sorry, there was an error saving the product.');
+      bot.sendMessage(msg.chat.id, 'متأسفانه در ذخیره محصول مشکلی پیش آمده است.');
     }
   } else if (userState.state === 'ORDERING') {
     try {
       const quantity = parseInt(msg.text);
       if (isNaN(quantity) || quantity < 1) {
-        return bot.sendMessage(msg.chat.id, 'Please send a valid number greater than 0.');
+        return bot.sendMessage(msg.chat.id, 'لطفا یک عدد معتبر بزرگتر از صفر وارد کنید.');
       }
 
       const product = await Product.findByPk(userState.productId);
       if (!product || product.availableUnits < quantity) {
-        return bot.sendMessage(msg.chat.id, 'Sorry, this quantity is not available.');
+        return bot.sendMessage(msg.chat.id, 'متأسفانه این تعداد از محصول موجود نیست.');
       }
 
       const user = await User.findOne({ where: { telegramId: userId } });
       const order = await Order.create({
         UserId: user.id,
-        totalAmount: product.price * quantity
+        totalAmount: product.price * quantity,
+        status: 'pending',
+        paymentStatus: 'not_paid'
       });
 
       await OrderItem.create({
@@ -257,16 +402,88 @@ bot.on('message', async (msg) => {
         quantity: quantity
       });
 
-      // Update product quantity
       await product.update({
         availableUnits: product.availableUnits - quantity
       });
 
-      bot.sendMessage(msg.chat.id, `Order placed successfully! Order ID: ${order.id}`);
+      // Send order confirmation and payment button
+      const message = `✅ سفارش شما با موفقیت ثبت شد!\n`
+        + `شماره سفارش: ${order.id}\n`
+        + `محصول: ${product.name}\n`
+        + `تعداد: ${quantity} عدد\n`
+        + `مبلغ کل: ${formatPrice(order.totalAmount)} تومان\n\n`
+        + `لطفا برای پرداخت و تکمیل سفارش، بر روی دکمه پرداخت کلیک کنید.`;
+
+      await bot.sendMessage(msg.chat.id, message, {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '💳 پرداخت سفارش', callback_data: `pay_${order.id}` }]
+          ]
+        }
+      });
+
       userStates.delete(userId);
     } catch (error) {
       console.error('Error processing order:', error);
-      bot.sendMessage(msg.chat.id, 'Sorry, there was an error processing your order.');
+      bot.sendMessage(msg.chat.id, 'متأسفانه در ثبت سفارش مشکلی پیش آمده است.');
+    }
+  } else if (userState.state === 'EDITING_PRODUCT_NAME') {
+    userState.newName = msg.text;
+    userState.state = 'EDITING_PRODUCT_DESCRIPTION';
+    bot.sendMessage(msg.chat.id, 'لطفا توضیحات جدید محصول را وارد کنید:');
+  } else if (userState.state === 'EDITING_PRODUCT_DESCRIPTION') {
+    userState.newDescription = msg.text;
+    userState.state = 'EDITING_PRODUCT_PRICE';
+    bot.sendMessage(msg.chat.id, 'لطفا قیمت جدید محصول را به تومان وارد کنید (فقط عدد):');
+  } else if (userState.state === 'EDITING_PRODUCT_PRICE') {
+    const price = parseFloat(msg.text);
+    if (isNaN(price)) {
+      return bot.sendMessage(msg.chat.id, 'لطفا یک عدد معتبر وارد کنید:');
+    }
+    userState.newPrice = price;
+    userState.state = 'EDITING_PRODUCT_UNITS';
+    bot.sendMessage(msg.chat.id, 'لطفا تعداد موجودی جدید را وارد کنید (فقط عدد):');
+  } else if (userState.state === 'EDITING_PRODUCT_UNITS') {
+    const units = parseInt(msg.text);
+    if (isNaN(units)) {
+      return bot.sendMessage(msg.chat.id, 'لطفا یک عدد معتبر وارد کنید:');
+    }
+    userState.newUnits = units;
+    userState.state = 'EDITING_PRODUCT_IMAGE';
+    bot.sendMessage(msg.chat.id, 'لطفا تصویر جدید محصول را ارسال کنید (یا برای حفظ تصویر فعلی از دستور /skip استفاده کنید):');
+  } else if (userState.state === 'EDITING_PRODUCT_IMAGE') {
+    try {
+      let imagePath = userState.currentProduct.imagePath;
+
+      if (msg.text !== '/skip') {
+        if (!msg.photo) {
+          return bot.sendMessage(msg.chat.id, 'لطفا یک تصویر ارسال کنید یا برای حفظ تصویر فعلی از دستور /skip استفاده کنید:');
+        }
+
+        const oldImagePath = path.join(UPLOAD_DIR, userState.currentProduct.imagePath);
+        if (fs.existsSync(oldImagePath)) {
+          fs.unlinkSync(oldImagePath);
+        }
+
+        const photo = msg.photo[msg.photo.length - 1];
+        imagePath = await downloadImage(photo.file_id);
+      }
+
+      await Product.update({
+        name: userState.newName,
+        description: userState.newDescription,
+        price: userState.newPrice,
+        availableUnits: userState.newUnits,
+        imagePath: imagePath
+      }, {
+        where: { id: userState.productId }
+      });
+
+      bot.sendMessage(msg.chat.id, 'محصول با موفقیت بروزرسانی شد.');
+      userStates.delete(userId);
+    } catch (error) {
+      console.error('Error updating product:', error);
+      bot.sendMessage(msg.chat.id, 'متأسفانه در بروزرسانی محصول مشکلی پیش آمده است.');
     }
   }
 });
@@ -278,7 +495,7 @@ bot.onText(/\/order_(.+)/, async (msg, match) => {
     const product = await Product.findByPk(productId);
     
     if (!product || product.availableUnits === 0) {
-      return bot.sendMessage(msg.chat.id, 'Sorry, this product is not available.');
+      return bot.sendMessage(msg.chat.id, 'متأسفانه این محصول در حال حاضر موجود نیست.');
     }
 
     userStates.set(msg.from.id, {
@@ -286,15 +503,15 @@ bot.onText(/\/order_(.+)/, async (msg, match) => {
       productId: productId
     });
 
-    bot.sendMessage(msg.chat.id, `How many units of ${product.name} would you like to order?`);
+    bot.sendMessage(msg.chat.id, `چه تعداد از محصول ${product.name} می‌خواهید سفارش دهید؟`);
   } catch (error) {
     console.error('Error in order command:', error);
-    bot.sendMessage(msg.chat.id, 'Sorry, there was an error processing your order.');
+    bot.sendMessage(msg.chat.id, 'متأسفانه در ثبت سفارش مشکلی پیش آمده است.');
   }
 });
 
 // View Orders Handler
-bot.onText(/🛒 My Orders/, async (msg) => {
+bot.onText(/🛒 سفارشات من/, async (msg) => {
   try {
     const user = await User.findOne({ where: { telegramId: msg.from.id } });
     const orders = await Order.findAll({
@@ -307,21 +524,81 @@ bot.onText(/🛒 My Orders/, async (msg) => {
     });
 
     if (orders.length === 0) {
-      return bot.sendMessage(msg.chat.id, 'You have no orders yet.');
+      return bot.sendMessage(msg.chat.id, 'شما هنوز سفارشی ثبت نکرده‌اید.');
     }
 
     for (const order of orders) {
-      let message = `Order #${order.id}\nStatus: ${order.status}\nTotal Amount: $${order.totalAmount}\n\nItems:\n`;
+      let message = `🛍 سفارش #${order.id}\n`;
+      message += `📅 تاریخ: ${new Date(order.createdAt).toLocaleDateString('fa-IR')}\n`;
+      message += `🏷 وضعیت: ${translateStatus(order.status)}\n`;
+      message += `💰 مبلغ کل: ${formatPrice(order.totalAmount)} تومان\n\n`;
+      message += `📦 اقلام سفارش:\n`;
+      
       for (const product of order.Products) {
-        message += `- ${product.name} (${product.OrderItem.quantity} units)\n`;
+        message += `- ${product.name} (${product.OrderItem.quantity} عدد)\n`;
       }
-      message += `\nOrdered on: ${order.createdAt.toLocaleDateString()}`;
+
       await bot.sendMessage(msg.chat.id, message);
     }
   } catch (error) {
     console.error('Error fetching orders:', error);
-    bot.sendMessage(msg.chat.id, 'Sorry, there was an error fetching your orders.');
+    bot.sendMessage(msg.chat.id, 'متأسفانه در دریافت لیست سفارشات مشکلی پیش آمده است.');
   }
 });
+
+// Handle payment for order
+async function handlePayment(chatId, orderId) {
+  try {
+    const order = await Order.findByPk(orderId, {
+      include: [
+        {
+          model: Product,
+          through: { attributes: ['quantity'] }
+        },
+        {
+          model: User
+        }
+      ]
+    });
+
+    if (!order) {
+      return bot.sendMessage(chatId, 'سفارش مورد نظر یافت نشد.');
+    }
+
+    // Create payment description
+    let description = `پرداخت سفارش #${order.id}\n`;
+    for (const product of order.Products) {
+      description += `${product.name} (${product.OrderItem.quantity} عدد)\n`;
+    }
+
+    // Request payment from Zarinpal
+    const payment = await requestPayment(
+      Math.round(order.totalAmount), // Convert to Toman and round
+      description,
+      order.id
+    );
+
+    // Update order status
+    await order.update({
+      status: 'awaiting_payment',
+      paymentStatus: 'awaiting_verification',
+      authorityCode: payment.authority
+    });
+
+    // Send payment link to user
+    const message = `لطفا برای پرداخت مبلغ ${formatPrice(order.totalAmount)} تومان بر روی لینک زیر کلیک کنید:`;
+    await bot.sendMessage(chatId, message, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🔗 پرداخت آنلاین', url: payment.url }]
+        ]
+      }
+    });
+
+  } catch (error) {
+    console.error('Error in payment handler:', error);
+    bot.sendMessage(chatId, 'متأسفانه در ایجاد لینک پرداخت مشکلی پیش آمده است.');
+  }
+}
 
 console.log('Bot is running...'); 

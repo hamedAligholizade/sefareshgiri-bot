@@ -9,8 +9,20 @@ const Order = sequelize.define('Order', {
     allowNull: false
   },
   status: {
-    type: DataTypes.ENUM('pending', 'confirmed', 'cancelled'),
+    type: DataTypes.ENUM('pending', 'confirmed', 'cancelled', 'awaiting_payment', 'paid'),
     defaultValue: 'pending'
+  },
+  paymentStatus: {
+    type: DataTypes.ENUM('not_paid', 'awaiting_verification', 'paid', 'failed'),
+    defaultValue: 'not_paid'
+  },
+  authorityCode: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  refId: {
+    type: DataTypes.STRING,
+    allowNull: true
   },
   createdAt: {
     type: DataTypes.DATE,

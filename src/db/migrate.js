@@ -6,18 +6,20 @@ const { Order, OrderItem } = require('../models/Order');
 
 async function migrate() {
   try {
-    // Drop all tables and recreate them
-    await sequelize.sync({ force: true });
+    // Sync database without dropping existing tables
+    await sequelize.sync({ alter: true });
     console.log('Database synchronized successfully');
 
-    // Create admin user if ADMIN_USER_ID is provided
+    // Create admin user if it doesn't exist
     if (process.env.ADMIN_USER_ID) {
-      await User.create({
-        telegramId: parseInt(process.env.ADMIN_USER_ID),
-        isAdmin: true,
-        firstName: 'Admin'
+      await User.findOrCreate({
+        where: { telegramId: parseInt(process.env.ADMIN_USER_ID) },
+        defaults: {
+          isAdmin: true,
+          firstName: 'Admin'
+        }
       });
-      console.log('Admin user created successfully');
+      console.log('Admin user checked/created successfully');
     }
 
     process.exit(0);
