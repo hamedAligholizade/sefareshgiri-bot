@@ -1,7 +1,7 @@
 const express = require('express');
 const { Order } = require('./models/Order');
 const { verifyPayment } = require('./services/zarinpal');
-const bot = require('./bot');
+const bot = require('./index');
 
 const app = express();
 const port = process.env.PORT || 3000;
