@@ -11,8 +11,8 @@ echo "PostgreSQL is up - executing command"
 echo "Running database migrations..."
 node src/db/migrate.js
 
-echo "Starting bot and server..."
-node src/server.js & node src/index.js
+echo "Starting application..."
+node src/index.js
 
 # Keep the container running
 wait 

@@ -1,17 +1,24 @@
 const express = require('express');
 const { Order } = require('./models/Order');
 const { verifyPayment } = require('./services/zarinpal');
-const bot = require('./index');
+const bot = require('./bot');
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+// Helper function to format price
+function formatPrice(price) {
+  return Number(price).toLocaleString('fa-IR');
+}
 
 app.get('/verify', async (req, res) => {
   try {
     const { Authority, Status, order_id } = req.query;
 
     if (Status === 'OK') {
-      const order = await Order.findByPk(order_id);
+      const order = await Order.findByPk(order_id, {
+        include: [{ model: User }]
+      });
       
       if (!order) {
         return res.send('سفارش مورد نظر یافت نشد.');
@@ -54,7 +61,9 @@ app.get('/verify', async (req, res) => {
         return res.send('پرداخت ناموفق بود. می‌توانید به ربات بازگردید و مجددا تلاش کنید.');
       }
     } else {
-      const order = await Order.findByPk(order_id);
+      const order = await Order.findByPk(order_id, {
+        include: [{ model: User }]
+      });
       if (order) {
         await order.update({
           paymentStatus: 'failed'
