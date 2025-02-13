@@ -311,6 +311,8 @@ bot.on('callback_query', async (query) => {
       console.error('Error deleting product:', error);
       await bot.sendMessage(chatId, 'متأسفانه در حذف محصول مشکلی پیش آمده است.');
     }
+  } else if (action === 'pay') {
+    await handlePayment(chatId, id);
   }
 
   await bot.answerCallbackQuery(query.id);
@@ -548,61 +550,6 @@ bot.onText(/🛒 سفارشات من/, async (msg) => {
     bot.sendMessage(msg.chat.id, 'متأسفانه در دریافت لیست سفارشات مشکلی پیش آمده است.');
   }
 });
-
-// Handle payment for order
-async function handlePayment(chatId, orderId) {
-  try {
-    const order = await Order.findByPk(orderId, {
-      include: [
-        {
-          model: Product,
-          through: { attributes: ['quantity'] }
-        },
-        {
-          model: User
-        }
-      ]
-    });
-
-    if (!order) {
-      return bot.sendMessage(chatId, 'سفارش مورد نظر یافت نشد.');
-    }
-
-    // Create payment description
-    let description = `پرداخت سفارش #${order.id}\n`;
-    for (const product of order.Products) {
-      description += `${product.name} (${product.OrderItem.quantity} عدد)\n`;
-    }
-
-    // Request payment from Zarinpal
-    const payment = await requestPayment(
-      Math.round(order.totalAmount), // Convert to Toman and round
-      description,
-      order.id
-    );
-
-    // Update order status
-    await order.update({
-      status: 'awaiting_payment',
-      paymentStatus: 'awaiting_verification',
-      authorityCode: payment.authority
-    });
-
-    // Send payment link to user
-    const message = `لطفا برای پرداخت مبلغ ${formatPrice(order.totalAmount)} تومان بر روی لینک زیر کلیک کنید:`;
-    await bot.sendMessage(chatId, message, {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '🔗 پرداخت آنلاین', url: payment.url }]
-        ]
-      }
-    });
-
-  } catch (error) {
-    console.error('Error in payment handler:', error);
-    bot.sendMessage(chatId, 'متأسفانه در ایجاد لینک پرداخت مشکلی پیش آمده است.');
-  }
-}
 
 // Payment verification endpoint
 app.get('/verify', async (req, res) => {
