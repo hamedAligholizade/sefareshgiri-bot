@@ -41,16 +41,28 @@ services:
       - app_network
     restart: unless-stopped
 
+  web:
+    build: 
+      context: ./online-shop
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - app
+    networks:
+      - app_network
+    restart: unless-stopped
+
   nginx:
     image: nginx:alpine
     ports:
-      - "80:80"
       - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf
       - ./ssl:/etc/nginx/ssl:ro
     depends_on:
       - app
+      - web
     networks:
       - app_network
     restart: unless-stopped

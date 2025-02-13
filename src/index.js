@@ -24,6 +24,18 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Enable CORS and JSON parsing
+app.use(express.json());
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  next();
+});
+
+// Serve static files
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+
 // Helper function to show main menu
 async function showMainMenu(chatId, isAdmin) {
   const keyboard = {
@@ -656,6 +668,90 @@ app.get('/verify', async (req, res) => {
   } catch (error) {
     console.error('Error in payment verification:', error);
     res.status(500).send('خطا در تایید پرداخت. لطفا با پشتیبانی تماس بگیرید.');
+  }
+});
+
+// API endpoints for web application
+app.get('/api/products', async (req, res) => {
+  try {
+    const products = await Product.findAll({
+      where: {
+        availableUnits: {
+          [Op.gt]: 0
+        }
+      }
+    });
+    res.json(products);
+  } catch (error) {
+    console.error('Error fetching products:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/products/:id', async (req, res) => {
+  try {
+    const product = await Product.findByPk(req.params.id);
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+    res.json(product);
+  } catch (error) {
+    console.error('Error fetching product:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/orders', async (req, res) => {
+  try {
+    const { productId, quantity } = req.body;
+    
+    const product = await Product.findByPk(productId);
+    if (!product || product.availableUnits < quantity) {
+      return res.status(400).json({ error: 'Product not available in requested quantity' });
+    }
+
+    // Create order
+    const order = await Order.create({
+      totalAmount: product.price * quantity,
+      status: 'pending',
+      paymentStatus: 'not_paid'
+    });
+
+    // Create order item
+    await OrderItem.create({
+      OrderId: order.id,
+      ProductId: productId,
+      quantity: quantity
+    });
+
+    // Update product inventory
+    await product.update({
+      availableUnits: product.availableUnits - quantity
+    });
+
+    // Request payment from Zarinpal
+    const description = `خرید محصول ${product.name} - تعداد: ${quantity}`;
+    const payment = await requestPayment(
+      Math.round(order.totalAmount),
+      description,
+      order.id
+    );
+
+    // Update order with payment details
+    await order.update({
+      status: 'awaiting_payment',
+      paymentStatus: 'awaiting_verification',
+      authorityCode: payment.authority
+    });
+
+    res.json({
+      success: true,
+      orderId: order.id,
+      paymentUrl: payment.url
+    });
+  } catch (error) {
+    console.error('Error creating order:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
