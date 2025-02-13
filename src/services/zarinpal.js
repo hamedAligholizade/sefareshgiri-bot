@@ -5,6 +5,10 @@ const BASE_URL = SANDBOX
   ? 'https://sandbox.zarinpal.com/pg' 
   : 'https://api.zarinpal.com/pg';
 
+console.log(`Zarinpal mode: ${SANDBOX ? 'Sandbox' : 'Production'}`);
+console.log(`Merchant ID: ${process.env.ZARINPAL_MERCHANT_ID}`);
+console.log(`Callback URL: ${process.env.ZARINPAL_CALLBACK_URL}`);
+
 /**
  * Request payment from Zarinpal
  * @param {number} amount - Amount in Toman
@@ -14,6 +18,12 @@ const BASE_URL = SANDBOX
  */
 async function requestPayment(amount, description, orderId) {
   try {
+    console.log(`Requesting payment for order ${orderId}:`, {
+      amount,
+      description,
+      callback_url: `${process.env.ZARINPAL_CALLBACK_URL}?order_id=${orderId}`
+    });
+
     const response = await axios.post(`${BASE_URL}/v4/payment/request.json`, {
       merchant_id: process.env.ZARINPAL_MERCHANT_ID,
       amount: amount,
@@ -21,16 +31,21 @@ async function requestPayment(amount, description, orderId) {
       callback_url: `${process.env.ZARINPAL_CALLBACK_URL}?order_id=${orderId}`,
     });
 
+    console.log('Zarinpal response:', response.data);
+
     if (response.data.data.code === 100) {
-      return {
+      const result = {
         url: `${BASE_URL}/StartPay/${response.data.data.authority}`,
         authority: response.data.data.authority
       };
+      console.log('Payment request successful:', result);
+      return result;
     } else {
+      console.error('Payment request failed:', response.data.errors);
       throw new Error(`خطا در ایجاد درخواست پرداخت: ${response.data.errors.message}`);
     }
   } catch (error) {
-    console.error('Error requesting payment:', error);
+    console.error('Error requesting payment:', error.response?.data || error.message);
     throw new Error('خطا در ارتباط با درگاه پرداخت');
   }
 }
@@ -43,25 +58,32 @@ async function requestPayment(amount, description, orderId) {
  */
 async function verifyPayment(authority, amount) {
   try {
+    console.log(`Verifying payment:`, { authority, amount });
+
     const response = await axios.post(`${BASE_URL}/v4/payment/verify.json`, {
       merchant_id: process.env.ZARINPAL_MERCHANT_ID,
       amount: amount,
       authority: authority
     });
 
+    console.log('Verification response:', response.data);
+
     if (response.data.data.code === 100) {
-      return {
+      const result = {
         refId: response.data.data.ref_id,
         success: true
       };
+      console.log('Payment verification successful:', result);
+      return result;
     } else {
+      console.error('Payment verification failed:', response.data.errors);
       return {
         success: false,
         message: getErrorMessage(response.data.errors.code)
       };
     }
   } catch (error) {
-    console.error('Error verifying payment:', error);
+    console.error('Error verifying payment:', error.response?.data || error.message);
     throw new Error('خطا در تایید پرداخت');
   }
 }

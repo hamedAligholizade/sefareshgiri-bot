@@ -11,6 +11,7 @@ const { v4: uuidv4 } = require('uuid');
 const { requestPayment, verifyPayment } = require('./services/zarinpal');
 const bot = require('./bot');
 const express = require('express');
+const { handlePayment } = require('./handlers/payment');
 
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads', 'images');
 
@@ -275,25 +276,25 @@ function translateStatus(status) {
 
 // Handle callback queries for edit and delete actions
 bot.on('callback_query', async (query) => {
-  const [action, productId] = query.data.split('_');
+  const [action, id] = query.data.split('_');
   const chatId = query.message.chat.id;
 
   if (action === 'edit') {
-    const product = await Product.findByPk(productId);
+    const product = await Product.findByPk(id);
     if (!product) {
       return bot.sendMessage(chatId, 'محصول مورد نظر یافت نشد.');
     }
 
     userStates.set(query.from.id, {
       state: 'EDITING_PRODUCT_NAME',
-      productId: productId,
+      productId: id,
       currentProduct: product
     });
 
     const message = `مشخصات فعلی محصول:\n\nنام: ${product.name}\nتوضیحات: ${product.description}\nقیمت: ${formatPrice(product.price)} تومان\nموجودی: ${product.availableUnits} عدد\n\nلطفا نام جدید محصول را وارد کنید (یا برای لغو از دستور /cancel استفاده کنید):`;
     await bot.sendMessage(chatId, message);
   } else if (action === 'delete') {
-    const product = await Product.findByPk(productId);
+    const product = await Product.findByPk(id);
     if (!product) {
       return bot.sendMessage(chatId, 'محصول مورد نظر یافت نشد.');
     }
