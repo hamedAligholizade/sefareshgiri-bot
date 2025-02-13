@@ -47,6 +47,9 @@ services:
       dockerfile: Dockerfile
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      - ./ssl:/etc/nginx/ssl:ro
     depends_on:
       - app
     networks:
@@ -56,7 +59,7 @@ services:
   nginx:
     image: nginx:alpine
     ports:
-      - "443:443"
+      - "8443:443"  # Changed to avoid port conflict
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf
       - ./ssl:/etc/nginx/ssl:ro
