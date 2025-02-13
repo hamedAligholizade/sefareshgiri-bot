@@ -313,6 +313,40 @@ bot.on('callback_query', async (query) => {
     }
   } else if (action === 'pay') {
     await handlePayment(chatId, id);
+  } else if (action === 'cancel') {
+    try {
+      const order = await Order.findByPk(id, {
+        include: [{ model: Product }]
+      });
+
+      if (!order) {
+        await bot.sendMessage(chatId, 'سفارش مورد نظر یافت نشد.');
+        return;
+      }
+
+      if (order.status === 'cancelled') {
+        await bot.sendMessage(chatId, 'این سفارش قبلاً لغو شده است.');
+        return;
+      }
+
+      if (order.paymentStatus === 'paid') {
+        await bot.sendMessage(chatId, 'این سفارش قبلاً پرداخت شده و قابل لغو نیست.');
+        return;
+      }
+
+      // Update order status to cancelled
+      await order.update({ status: 'cancelled' });
+
+      // Return products to inventory
+      for (const product of order.Products) {
+        await product.increment('availableUnits', { by: product.OrderItem.quantity });
+      }
+
+      await bot.sendMessage(chatId, `✅ سفارش #${order.id} با موفقیت لغو شد.`);
+    } catch (error) {
+      console.error('Error cancelling order:', error);
+      await bot.sendMessage(chatId, 'متأسفانه در لغو سفارش مشکلی پیش آمده است.');
+    }
   }
 
   await bot.answerCallbackQuery(query.id);
@@ -422,7 +456,8 @@ bot.on('message', async (msg) => {
       await bot.sendMessage(msg.chat.id, message, {
         reply_markup: {
           inline_keyboard: [
-            [{ text: '💳 پرداخت سفارش', callback_data: `pay_${order.id}` }]
+            [{ text: '💳 پرداخت سفارش', callback_data: `pay_${order.id}` }],
+            [{ text: '❌ لغو سفارش', callback_data: `cancel_${order.id}` }]
           ]
         }
       });
